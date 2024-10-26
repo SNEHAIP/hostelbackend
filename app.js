@@ -7,13 +7,11 @@ const adminModel = require("./models/admins")
 const userModel = require("./models/user")
 const foodModel  = require("./models/book")
 
-
 const app = express()
 app.use(cors())
 app.use(express.json())
 
 mongoose.connect("mongodb+srv://snehaip:sneha2020@cluster0.swl0hmq.mongodb.net/surplusfooddb?retryWrites=true&w=majority&appName=Cluster0") 
-
 
 //ADMIN
 app.post("/AdminLogin", (req, res) => {
@@ -66,7 +64,6 @@ app.post('/AddFood', async (req, res) => {
   }
 });
 
-
 // View Food
 app.post('/ViewFood', async (req, res) => {
   try {
@@ -79,16 +76,11 @@ app.post('/ViewFood', async (req, res) => {
 
 });
 
-
-
 const Cart = require('./models/cart');  // Import the Cart model
 const Wishlist = require("./models/wishlist")
 const feedbackModel = require("./models/feedback")
-
-
-
-
-
+const order = require("./models/order")
+const cart = require("./models/cart")
 
 app.post('/AddToCart', async (req, res) => {
   try {
@@ -143,9 +135,6 @@ app.post('/ViewCart', async (req, res) => {
   }
 });
 
-
-
-
 // Add item to wishlist with foodId
 // Ensure that the foodId is being added when you add items to wishlist
 const addToWishlist = (item) => {
@@ -164,21 +153,6 @@ const addToWishlist = (item) => {
 
   console.log('Wishlist after adding item:', updatedWishlist); // Check updated wishlist
 };
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 //  to delete an food by name
@@ -217,15 +191,6 @@ app.put('/deletefood/:name', async (req, res) => {
     }
   });
   
-
-
-
-
-
-
-
-
-
    //USER
 app.post("/userSignUp",async(req,res)=>{
 
@@ -294,24 +259,6 @@ app.get('/userProfile/:email', async (req, res) => {
     }
 });
 
-
-
-// app.post("/delete",(req,res)=>{
-//   let input = req.body
-//   Wishlist.findByIdAndDelete(input._id).then(
-//     (response)=>{
-//       res.json({"status":"success"})
-//     }
-//   ).catch(
-//     (error)=>{
-//       res.json(error)
-//     }
-//   )
-// })
-
-
-
-
 //user feedback//
 
 // Feedback submission route
@@ -338,7 +285,6 @@ app.post('/submitFeedback', async (req, res) => {
 
 //admin feedbackview//
 
-
 // Route to get all feedbacks
 app.get('/getFeedbacks', async (req, res) => {
     try {
@@ -350,10 +296,10 @@ app.get('/getFeedbacks', async (req, res) => {
 });
 
 // Route to delete a feedback by ID
-app.delete('/deleteFeedback/:id', async (req, res) => {
+app.delete('/deleteFeedback/:email', async (req, res) => {
     try {
-        const { id } = req.params;
-        await feedbackModel.findByIdAndDelete(id);
+        const { email } = req.params;
+        await feedbackModel.findByIdAndDelete(email);
         res.status(200).json({ message: 'Feedback deleted successfully' });
     } catch (err) {
         res.status(500).json({ error: 'Error deleting feedback' });
@@ -373,14 +319,66 @@ app.get('/getAllUsers', async (req, res) => {
     }
 });
 
+app.post('/update-quantity', async (req, res) => {
+    const { cart } = req.body;
+
+    try {
+        for (let item of cart) {
+            const updatedItem = await foodModel.findOneAndUpdate(
+                { name: item.name },
+                { $inc: { quantity: -item.quantity } },
+                { new: true }  // Return the updated document
+            );
+            
+            if (updatedItem) {
+                console.log(`Updated ${item.name}: New Quantity = ${updatedItem.quantity}`);
+            } else {
+                console.log(`No matching item found for ${item.name}`);
+            }
+        }
+        res.status(200).json({ message: 'Quantities updated successfully' });
+    } catch (error) {
+        console.error('Failed to update quantities:', error);
+        res.status(500).json({ error: 'Failed to update quantities' });
+    }
+});
+
+app.get('/foodItem/:id', async (req, res) => {
+    try {
+        const foodItem = await FoodItem.findById(req.params.id);
+        if (!foodItem) {
+            return res.status(404).json({ message: "Food item not found" });
+        }
+        res.json(foodItem);
+    } catch (error) {
+        res.status(500).json({ message: "Error retrieving food item", error });
+    }
+});
 
 
 
+//----------------------------ORDER STORE---------------------------------------------
+// Function to confirm order and store it in the database
+// routes/orderRoutes.js
 
+// Route to create a new order
 
+// Route to get orders for a specific user
+app.get('/:userId', async (req, res) => {
+    try {
+      const orders = await orderModel.find({ userId: req.params.userId }).populate('items.foodId');
+      if (orders.length > 0) {
+        res.status(200).json(orders);
+      } else {
+        res.status(404).json({ message: 'No orders found' });
+      }
+    } catch (error) {
+      res.status(500).json({ message: 'Error retrieving orders', error });
+    }
+  });
 
-
-
+  
+  
 
 app.listen(8080,()=>{
     console.log("server started")
