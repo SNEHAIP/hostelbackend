@@ -81,6 +81,7 @@ const Wishlist = require("./models/wishlist")
 const feedbackModel = require("./models/feedback")
 const order = require("./models/order")
 const cart = require("./models/cart")
+const orderModel = require("./models/order")
 
 app.post('/AddToCart', async (req, res) => {
   try {
@@ -135,6 +136,8 @@ app.post('/ViewCart', async (req, res) => {
   }
 });
 
+
+
 // Add item to wishlist with foodId
 // Ensure that the foodId is being added when you add items to wishlist
 const addToWishlist = (item) => {
@@ -168,13 +171,8 @@ app.put('/deletefood/:name', async (req, res) => {
             return res.status(404).json({ message: 'Food item not found' });
         }
   
-        // Check if the quantity to remove is valid
-        if (quantityToRemove > foodItem.quantity) {
-            return res.status(400).json({ message: 'Cannot remove more than available quantity' });
-        }
-  
         // Update the quantity
-        foodItem.quantity -= quantityToRemove;
+        foodItem.quantity += quantityToRemove;
   
         // If quantity reaches zero, you can choose to delete the item or keep it with zero quantity
         if (foodItem.quantity === 0) {
@@ -319,29 +317,6 @@ app.get('/getAllUsers', async (req, res) => {
     }
 });
 
-app.post('/update-quantity', async (req, res) => {
-    const { cart } = req.body;
-
-    try {
-        for (let item of cart) {
-            const updatedItem = await foodModel.findOneAndUpdate(
-                { name: item.name },
-                { $inc: { quantity: -item.quantity } },
-                { new: true }  // Return the updated document
-            );
-            
-            if (updatedItem) {
-                console.log(`Updated ${item.name}: New Quantity = ${updatedItem.quantity}`);
-            } else {
-                console.log(`No matching item found for ${item.name}`);
-            }
-        }
-        res.status(200).json({ message: 'Quantities updated successfully' });
-    } catch (error) {
-        console.error('Failed to update quantities:', error);
-        res.status(500).json({ error: 'Failed to update quantities' });
-    }
-});
 
 app.get('/foodItem/:id', async (req, res) => {
     try {
@@ -377,8 +352,199 @@ app.get('/:userId', async (req, res) => {
     }
   });
 
+  app.post('/quantityUpdate', async (req, res) => {
+    const { userId, itemId, quantity } = req.body;
+
+    if (!userId || !itemId || !quantity) {
+        return res.status(400).json({ message: 'User ID, item ID, and quantity are required.' });
+    }
+
+    try {
+        // Find the item by its ID
+        const foodItem = await foodModel.findById(itemId);
+
+        if (!foodItem) {
+            return res.status(404).json({ message: 'Food item not found.' });
+        }
+
+        // Check if the requested quantity is available
+        if (foodItem.quantity < quantity) {
+            return res.status(400).json({ message: 'Insufficient quantity available.' });
+        }
+
+        // Subtract the quantity from the current stock
+        foodItem.quantity -= quantity;
+
+        // Save the updated item
+        await foodItem.save();
+
+        res.json({ message: 'Quantity updated successfully', updatedItem: foodItem });
+    } catch (error) {
+        console.error("Error updating quantity:", error);
+        res.status(500).json({ message: 'An error occurred while updating the quantity.' });
+    }
+});
+
+
+// SaveCart API - Save a user's cart items to the database
+app.post('/SaveCart', async (req, res) => {
+    const { userId, items } = req.body;
+    console.log("Received request to save cart:", req.body);
+
+    // Validate input
+    if (!userId || !items || items.length === 0) {
+        console.error("Validation failed: Missing userId or items");
+        return res.status(400).json({ status: 'error', message: 'User ID and cart items are required' });
+    }
+
+    try {
+        // Delete existing cart items for the user
+        await Cart.deleteMany({ userId });
+
+        // Map the items to the cart schema
+        const cartItems = items.map((item) => ({
+            userId: userId,
+            foodId: mongoose.Types.ObjectId.isValid(item.foodId) 
+                     ? mongoose.Types.ObjectId(item.foodId) 
+                     : new mongoose.Types.ObjectId(), // Fallback to a new ObjectId if invalid
+            name: item.name,
+            price: item.price,
+            quantity: item.quantity,
+        }));
+        
+
+        // Insert new cart items
+        const savedItems = await Cart.insertMany(cartItems);
+        console.log("Cart items saved:", savedItems);
+        res.status(200).json({ status: 'success', message: 'Cart saved successfully', cartItems: savedItems });
+    } catch (error) {
+        console.error("Error saving cart:", error);
+        res.status(500).json({ status: 'error', message: 'Failed to save cart' });
+    }
+});
+
+
+app.put('/foodItems/decrementQuantities', async (req, res) => {
+    const { updateData } = req.body;
+
+    try {
+        const updatePromises = updateData.map(async (item) => {
+            // Decrement quantity based on foodId
+            await Food.updateOne(
+                { _id: item.foodId },
+                { $inc: { quantity: -item.quantity } }
+            );
+        });
+
+        await Promise.all(updatePromises);
+        res.status(200).json({ message: 'Quantities decremented successfully' });
+    } catch (error) {
+        console.error("Error decrementing quantities:", error);
+        res.status(500).json({ message: 'Error decrementing quantities' });
+    }
+});
+
+
+app.put('/foodItems/decrementQuantities', async (req, res) => {
+    const { updateData } = req.body; // Destructure updateData from the request body
+    try {
+        for (const item of updateData) {
+            await Food.findByIdAndUpdate(item.foodId, {
+                $inc: { quantity: -item.quantity } // Decrement quantity in the Food collection
+            });
+        }
+        res.status(200).send('Quantities updated successfully');
+    } catch (error) {
+        console.error('Error updating quantities:', error);
+        res.status(500).send('Error updating quantities');
+    }
+});
+
+
+// ADMIN order history//
+app.get('/userpayments', async (req, res) => {
+    const { userId } = req.query; // Ensure the userId is passed as a query parameter
   
+    try {
+        const payments = await orderModel.find({ userId })
+            .populate('product')
+           // Populate the product details
+            .exec(); // Execute the query
   
+        res.status(200).json(payments);
+    } catch (error) {
+        console.error('Error fetching payments:', error);
+        res.status(500).json({ message: 'Error fetching payments.' });
+    }
+  });
+
+// Route to move all cart items to the order history
+app.post('/checkout', async (req, res) => {
+    const { userId } = req.body; // Get userId from the request body
+
+    try {
+        // Find all cart items for the user
+        const cartItems = await Cart.find({ userId });
+        
+        if (!cartItems.length) {
+            return res.status(400).json({ message: 'Cart is empty' });
+        }
+
+        // Calculate the total amount
+        const totalAmount = cartItems.reduce((total, item) => total + (item.price * item.quantity), 0);
+
+        // Create a new order
+        const newOrder = new orderModel({
+            userId,
+            items: cartItems.map(item => ({
+                foodId: item.foodId,
+                name: item.name,
+                price: item.price,
+                quantity: item.quantity
+            })),
+            totalAmount,
+            orderDate: new Date()
+        });
+
+        // Save the order
+        await newOrder.save();
+
+        // Clear the cart for the user
+        await Cart.deleteMany({ userId });
+
+        res.status(200).json({ message: 'Order placed successfully', order: newOrder });
+    } catch (error) {
+        console.error('Error during checkout:', error);
+        res.status(500).json({ message: 'Failed to place order' });
+    }
+});
+
+// Route to view all orders for a specific user in the order history
+app.get('/orderHistory/:userId', async (req, res) => {
+    const { userId } = req.params;
+
+    try {
+        // Fetch all orders for the specified user
+        const orders = await orderModel.find({ userId })
+            .populate({
+                path: 'items.foodId',
+                select: 'name price', // Only populate name and price fields of each food item
+            })
+            .exec();
+
+        if (!orders.length) {
+            return res.status(404).json({ message: 'No orders found for this user' });
+        }
+
+        res.status(200).json({ orders });
+    } catch (error) {
+        console.error('Error fetching order history:', error);
+        res.status(500).json({ message: 'Failed to retrieve order history' });
+    }
+});
+
+
+
 
 app.listen(8080,()=>{
     console.log("server started")
